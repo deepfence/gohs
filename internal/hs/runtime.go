@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"runtime"
+	"runtime/cgo"
 	"unsafe"
 
 	"github.com/flier/gohs/internal/handle"
@@ -51,6 +52,38 @@ func hsMatchEventCallback(id C.uint, from, to C.ulonglong, flags C.uint, data un
 	}
 
 	return C.HS_SUCCESS
+}
+
+var globalHandler cgo.Handle
+
+func GlobalScan(db Database, data []byte, flags ScanFlag, s Scratch) error {
+	if data == nil {
+		return Error(C.HS_INVALID)
+	}
+
+	ret := C.hs_scan(db,
+		(*C.char)(unsafe.Pointer(&data[0])),
+		C.uint(len(data)),
+		C.uint(flags),
+		s,
+		C.match_event_handler(C.hsMatchEventCallback),
+		unsafe.Pointer(&globalHandler))
+
+	// Ensure go data is alive before the C function returns
+	runtime.KeepAlive(data)
+
+	if ret != C.HS_SUCCESS {
+		return Error(ret)
+	}
+
+	return nil
+}
+func RegisterGlobalHandler(cb MatchEventHandler, ctx interface{}) error {
+	globalHandler = handle.New(MatchEventContext{cb, ctx})
+	return nil
+}
+func UnregisterGlobalHandler() {
+	globalHandler.Delete()
 }
 
 func Scan(db Database, data []byte, flags ScanFlag, s Scratch, cb MatchEventHandler, ctx interface{}) error {
