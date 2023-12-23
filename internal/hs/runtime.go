@@ -4,7 +4,6 @@ import (
 	"errors"
 	"reflect"
 	"runtime"
-	"runtime/cgo"
 	"unsafe"
 
 	"github.com/flier/gohs/internal/handle"
@@ -16,6 +15,12 @@ import (
 #include <hs.h>
 
 extern int hsMatchEventCallback(unsigned int id,
+								unsigned long long from,
+								unsigned long long to,
+								unsigned int flags,
+								void *context);
+
+extern int hsGlobalMatchEventCallback(unsigned int id,
 								unsigned long long from,
 								unsigned long long to,
 								unsigned int flags,
@@ -54,7 +59,28 @@ func hsMatchEventCallback(id C.uint, from, to C.ulonglong, flags C.uint, data un
 	return C.HS_SUCCESS
 }
 
-var globalHandler cgo.Handle
+//export hsGlobalMatchEventCallback
+func hsGlobalMatchEventCallback(id C.uint, from, to C.ulonglong, flags C.uint, data unsafe.Pointer) C.int {
+
+	err := globalCallback(uint(id), uint64(from), uint64(to), uint(flags), nil)
+	if err != nil {
+		var hsErr Error
+		if errors.As(err, &hsErr) {
+			return C.int(hsErr)
+		}
+
+		return C.HS_SCAN_TERMINATED
+	}
+
+	return C.HS_SUCCESS
+}
+
+var globalCallback MatchEventHandler
+var globalCCallback C.match_event_handler
+
+func init() {
+	globalCCallback = C.match_event_handler(C.hsGlobalMatchEventCallback)
+}
 
 func GlobalScan(db Database, data []byte, flags ScanFlag, s Scratch) error {
 	if data == nil {
@@ -62,12 +88,12 @@ func GlobalScan(db Database, data []byte, flags ScanFlag, s Scratch) error {
 	}
 
 	ret := C.hs_scan(db,
-		(*C.char)(unsafe.Pointer(&data[0])),
+		(*C.char)(unsafe.Pointer(unsafe.SliceData(data))),
 		C.uint(len(data)),
 		C.uint(flags),
 		s,
-		C.match_event_handler(C.hsMatchEventCallback),
-		unsafe.Pointer(&globalHandler))
+		globalCCallback,
+		nil)
 
 	// Ensure go data is alive before the C function returns
 	runtime.KeepAlive(data)
@@ -79,11 +105,11 @@ func GlobalScan(db Database, data []byte, flags ScanFlag, s Scratch) error {
 	return nil
 }
 func RegisterGlobalHandler(cb MatchEventHandler, ctx interface{}) error {
-	globalHandler = handle.New(MatchEventContext{cb, ctx})
+	globalCallback = cb
 	return nil
 }
 func UnregisterGlobalHandler() {
-	globalHandler.Delete()
+	globalCallback = nil
 }
 
 func Scan(db Database, data []byte, flags ScanFlag, s Scratch, cb MatchEventHandler, ctx interface{}) error {
