@@ -10,7 +10,7 @@ import (
 type BlockScanner interface {
 	// This is the function call in which the actual pattern matching takes place for block-mode pattern databases.
 	Scan(data []byte, scratch *Scratch, handler MatchHandler, context interface{}) error
-	GlobalScan(data []byte, scratch *Scratch) error
+	GlobalScan(data string, scratch *Scratch) (bool, uint64)
 }
 
 // BlockMatcher implements regular expression search.
@@ -83,29 +83,8 @@ func newBlockScanner(bdb *baseDatabase) *blockScanner {
 	return &blockScanner{bdb}
 }
 
-func (bs *blockScanner) GlobalScan(data []byte, s *Scratch) error {
-	var err error
-	if s == nil {
-		s, err = NewScratch(bs)
-
-		if err != nil {
-			return err
-		}
-
-		defer func() {
-			_ = s.Free()
-		}()
-	}
-
-	return hs.GlobalScan(bs.db, data, 0, s.s) //nolint: wrapcheck
-}
-
-func RegisterGlobalHandler(handler MatchHandler, context interface{}) error {
-	return hs.RegisterGlobalHandler(handler, context)
-}
-
-func UnregisterGlobalHandler() {
-	hs.UnregisterGlobalHandler()
+func (bs *blockScanner) GlobalScan(data string, s *Scratch) (bool, uint64) {
+	return hs.GlobalScan(bs.db, data, s.s)
 }
 
 func (bs *blockScanner) Scan(data []byte, s *Scratch, handler MatchHandler, context interface{}) (err error) {

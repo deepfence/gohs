@@ -25,6 +25,12 @@ extern int hsGlobalMatchEventCallback(unsigned int id,
 								unsigned long long to,
 								unsigned int flags,
 								void *context);
+
+extern int found;
+extern unsigned long long last_index;
+extern char *data;
+extern unsigned int data_size;
+extern void call_hs(hs_database_t* db, hs_scratch_t *s);
 */
 import "C"
 
@@ -59,57 +65,27 @@ func hsMatchEventCallback(id C.uint, from, to C.ulonglong, flags C.uint, data un
 	return C.HS_SUCCESS
 }
 
-//export hsGlobalMatchEventCallback
-func hsGlobalMatchEventCallback(id C.uint, from, to C.ulonglong, flags C.uint, data unsafe.Pointer) C.int {
+func GlobalScan(db Database, data string, s Scratch) (bool, uint64) {
+	//if len(data) == 0 {
+	//	return Error(C.HS_INVALID)
+	//}
 
-	err := globalCallback(uint(id), uint64(from), uint64(to), uint(flags), nil)
-	if err != nil {
-		var hsErr Error
-		if errors.As(err, &hsErr) {
-			return C.int(hsErr)
-		}
+	C.found = 0
+	C.last_index = 0
+	C.data = (*C.char)(unsafe.Pointer(unsafe.StringData(data)))
+	C.data_size = C.uint(len(data))
 
-		return C.HS_SCAN_TERMINATED
-	}
-
-	return C.HS_SUCCESS
-}
-
-var globalCallback MatchEventHandler
-var globalCCallback C.match_event_handler
-
-func init() {
-	globalCCallback = C.match_event_handler(C.hsGlobalMatchEventCallback)
-}
-
-func GlobalScan(db Database, data []byte, flags ScanFlag, s Scratch) error {
-	if data == nil {
-		return Error(C.HS_INVALID)
-	}
-
-	ret := C.hs_scan(db,
-		(*C.char)(unsafe.Pointer(unsafe.SliceData(data))),
-		C.uint(len(data)),
-		C.uint(flags),
-		s,
-		globalCCallback,
-		nil)
+	C.call_hs(db, s)
 
 	// Ensure go data is alive before the C function returns
-	runtime.KeepAlive(data)
+	// TODO: check if needed
+	// runtime.KeepAlive(data)
 
-	if ret != C.HS_SUCCESS {
-		return Error(ret)
-	}
+	//if ret != C.HS_SUCCESS {
+	//	return Error(ret)
+	//}
 
-	return nil
-}
-func RegisterGlobalHandler(cb MatchEventHandler, ctx interface{}) error {
-	globalCallback = cb
-	return nil
-}
-func UnregisterGlobalHandler() {
-	globalCallback = nil
+	return bool(C.found == 1), uint64(C.last_index)
 }
 
 func Scan(db Database, data []byte, flags ScanFlag, s Scratch, cb MatchEventHandler, ctx interface{}) error {

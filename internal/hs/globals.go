@@ -1,0 +1,3 @@
+package hs
+
+import "C"
