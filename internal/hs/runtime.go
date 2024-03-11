@@ -77,9 +77,11 @@ func GlobalScan(db Database, data string, s Scratch) (bool, uint64) {
 
 	C.call_hs(db, s)
 
+	C.data = nil // Prevents false positive GC check panic
+
 	// Ensure go data is alive before the C function returns
 	// TODO: check if needed
-	// runtime.KeepAlive(data)
+	runtime.KeepAlive(data)
 
 	//if ret != C.HS_SUCCESS {
 	//	return Error(ret)
